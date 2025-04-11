@@ -1,6 +1,7 @@
 import os
 import datetime
 import hashlib
+import logging
 from flask import Flask, session, url_for, redirect, render_template, request, abort, flash
 from database import list_users, verify, delete_user_from_db, add_user
 from database import read_note_from_db, write_note_into_db
@@ -8,6 +9,13 @@ from database import delete_note_from_db, match_user_id_with_note_id
 from database import image_upload_record, list_images_for_user
 from database import match_user_id_with_image_uid, delete_image_from_db
 from werkzeug.utils import secure_filename
+
+# Configuration du système de log
+logging.basicConfig(
+    filename='app.log',
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 app = Flask(__name__)
 app.config.from_object('config')
@@ -74,7 +82,7 @@ def FUN_admin():
 def FUN_write_note():
     text_to_write = request.form.get("text_note_to_take")
     current_user = session.get('current_user', 'Inconnu')
-    print(f"[WRITE NOTE] {current_user} a écrit une note : {text_to_write}")
+    logging.info(f"[WRITE NOTE] {current_user} a écrit une note : {text_to_write}")
     write_note_into_db(current_user, text_to_write)
     return redirect(url_for("FUN_private"))
 
@@ -83,11 +91,10 @@ def FUN_delete_note(note_id):
     current_user = session.get("current_user", None)
     owner = match_user_id_with_note_id(note_id)
     if current_user == owner:
-        print(f"[DELETE NOTE] {current_user} a supprimé la note {note_id}")
+        logging.info(f"[DELETE NOTE] {current_user} a supprimé la note {note_id}")
         delete_note_from_db(note_id)
     else:
-        print(f"[DELETE NOTE ÉCHOUÉ] {current_user}"
-              " a tenté de supprimer la note {note_id} appartenant à {owner}")
+        logging.warning(f"[DELETE NOTE ÉCHOUÉ] {current_user} a tenté de supprimer la note {note_id} appartenant à {owner}")
         return abort(401)
     return redirect(url_for("FUN_private"))
 
@@ -99,12 +106,12 @@ def allowed_file(filename):
 @app.route("/upload_image", methods=['POST'])
 def FUN_upload_image():
     if 'file' not in request.files:
-        print("[UPLOAD IMAGE] Aucun fichier reçu")
+        logging.warning("[UPLOAD IMAGE] Aucun fichier reçu")
         flash('No file part', category='danger')
         return redirect(url_for("FUN_private"))
     file = request.files['file']
     if file.filename == '':
-        print("[UPLOAD IMAGE] Aucun fichier sélectionné")
+        logging.warning("[UPLOAD IMAGE] Aucun fichier sélectionné")
         flash('No selected file', category='danger')
         return redirect(url_for("FUN_private"))
     if file and allowed_file(file.filename):
@@ -113,7 +120,7 @@ def FUN_upload_image():
         image_uid = hashlib.sha256((upload_time + filename).encode()).hexdigest()
         file.save(os.path.join(app.config['UPLOAD_FOLDER'], image_uid + "-" + filename))
         image_upload_record(image_uid, session['current_user'], filename, upload_time)
-        print(f"[UPLOAD IMAGE] {session['current_user']} a téléversé : {filename} (UID: {image_uid})")
+        logging.info(f"[UPLOAD IMAGE] {session['current_user']} a téléversé : {filename} (UID: {image_uid})")
     return redirect(url_for("FUN_private"))
 
 @app.route("/delete_image/<image_uid>", methods=["GET"])
@@ -122,13 +129,11 @@ def FUN_delete_image(image_uid):
     owner = match_user_id_with_image_uid(image_uid)
     if current_user == owner:
         delete_image_from_db(image_uid)
-        image_to_delete_from_pool = [y for y in [x for x in os.listdir(app.config['UPLOAD_FOLDER'])]
-                                     if y.split("-", 1)[0] == image_uid][0]
+        image_to_delete_from_pool = [y for y in [x for x in os.listdir(app.config['UPLOAD_FOLDER'])] if y.split("-", 1)[0] == image_uid][0]
         os.remove(os.path.join(app.config['UPLOAD_FOLDER'], image_to_delete_from_pool))
-        print(f"[DELETE IMAGE] {current_user} a supprimé l'image UID: {image_uid}")
+        logging.info(f"[DELETE IMAGE] {current_user} a supprimé l'image UID: {image_uid}")
     else:
-        print(f"[DELETE IMAGE ÉCHOUÉ] {current_user}"
-              " a tenté de supprimer une image appartenant à {owner}")
+        logging.warning(f"[DELETE IMAGE ÉCHOUÉ] {current_user} a tenté de supprimer une image appartenant à {owner}")
         return abort(401)
     return redirect(url_for("FUN_private"))
 
@@ -137,15 +142,15 @@ def FUN_login():
     id_submitted = request.form.get("id").upper()
     if (id_submitted in list_users()) and verify(id_submitted, request.form.get("pw")):
         session['current_user'] = id_submitted
-        print(f"[LOGIN] Utilisateur connecté : {id_submitted}")
+        logging.info(f"[LOGIN] Utilisateur connecté : {id_submitted}")
     else:
-        print(f"[LOGIN ÉCHOUÉ] Tentative de connexion pour : {id_submitted}")
+        logging.warning(f"[LOGIN ÉCHOUÉ] Tentative de connexion pour : {id_submitted}")
     return redirect(url_for("FUN_root"))
 
 @app.route("/logout/")
 def FUN_logout():
     user = session.get("current_user", "Inconnu")
-    print(f"[LOGOUT] Déconnexion de l'utilisateur : {user}")
+    logging.info(f"[LOGOUT] Déconnexion de l'utilisateur : {user}")
     session.pop("current_user", None)
     return redirect(url_for("FUN_root"))
 
@@ -153,19 +158,17 @@ def FUN_logout():
 def FUN_delete_user(id):
     if session.get("current_user", None) == "ADMIN":
         if id == "ADMIN":
-            print("[DELETE USER BLOQUÉ] Tentative de suppression de l’admin")
+            logging.warning("[DELETE USER BLOQUÉ] Tentative de suppression de l’admin")
             return abort(403)
         images_to_remove = [x[0] for x in list_images_for_user(id)]
         for f in images_to_remove:
-            image_to_delete_from_pool = [y for y in
-                [x for x in os.listdir(app.config['UPLOAD_FOLDER'])]
-                if y.split("-", 1)[0] == f][0]
+            image_to_delete_from_pool = [y for y in [x for x in os.listdir(app.config['UPLOAD_FOLDER'])] if y.split("-", 1)[0] == f][0]
             os.remove(os.path.join(app.config['UPLOAD_FOLDER'], image_to_delete_from_pool))
         delete_user_from_db(id)
-        print(f"[DELETE USER] Utilisateur supprimé : {id}")
+        logging.info(f"[DELETE USER] Utilisateur supprimé : {id}")
         return redirect(url_for("FUN_admin"))
     else:
-        print("[DELETE USER ÉCHOUÉ] Accès refusé")
+        logging.warning("[DELETE USER ÉCHOUÉ] Accès refusé")
         return abort(401)
 
 @app.route("/add_user", methods=["POST"])
@@ -173,14 +176,14 @@ def FUN_add_user():
     if session.get("current_user", None) == "ADMIN":
         user_id = request.form.get('id').upper()
         if user_id in list_users():
-            print(f"[ADD USER ÉCHOUÉ] Utilisateur déjà existant : {user_id}")
+            logging.warning(f"[ADD USER ÉCHOUÉ] Utilisateur déjà existant : {user_id}")
             user_list = list_users()
             user_table = zip(range(1, len(user_list)+1),
                              user_list,
                              [x + y for x, y in zip(["/delete_user/"] * len(user_list), user_list)])
             return render_template("admin.html", id_to_add_is_duplicated=True, users=user_table)
         if " " in user_id or "'" in user_id:
-            print(f"[ADD USER ÉCHOUÉ] ID invalide : {user_id}")
+            logging.warning(f"[ADD USER ÉCHOUÉ] ID invalide : {user_id}")
             user_list = list_users()
             user_table = zip(range(1, len(user_list)+1),
                              user_list,
@@ -188,10 +191,10 @@ def FUN_add_user():
             return render_template("admin.html", id_to_add_is_invalid=True, users=user_table)
         else:
             add_user(user_id, request.form.get('pw'))
-            print(f"[ADD USER] Nouvel utilisateur ajouté : {user_id}")
+            logging.info(f"[ADD USER] Nouvel utilisateur ajouté : {user_id}")
             return redirect(url_for("FUN_admin"))
     else:
-        print("[ADD USER ÉCHOUÉ] Accès non autorisé à l'ajout utilisateur")
+        logging.warning("[ADD USER ÉCHOUÉ] Accès non autorisé à l'ajout utilisateur")
         return abort(401)
 
 if __name__ == "__main__":
