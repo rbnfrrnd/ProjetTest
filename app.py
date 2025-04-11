@@ -3,16 +3,14 @@ import datetime
 import hashlib
 from flask import Flask, session, url_for, redirect, render_template, request, abort, flash
 from database import list_users, verify, delete_user_from_db, add_user
-from database import read_note_from_db, write_note_into_db, delete_note_from_db, match_user_id_with_note_id
-from database import image_upload_record, list_images_for_user, match_user_id_with_image_uid, delete_image_from_db
+from database import read_note_from_db, write_note_into_db
+from database import delete_note_from_db, match_user_id_with_note_id
+from database import image_upload_record, list_images_for_user
+from database import match_user_id_with_image_uid, delete_image_from_db
 from werkzeug.utils import secure_filename
-
-
 
 app = Flask(__name__)
 app.config.from_object('config')
-
-
 
 @app.errorhandler(401)
 def FUN_401(error):
@@ -34,10 +32,6 @@ def FUN_405(error):
 def FUN_413(error):
     return render_template("page_413.html"), 413
 
-
-
-
-
 @app.route("/")
 def FUN_root():
     return render_template("index.html")
@@ -50,18 +44,18 @@ def FUN_public():
 def FUN_private():
     if "current_user" in session.keys():
         notes_list = read_note_from_db(session['current_user'])
-        notes_table = zip([x[0] for x in notes_list],\
-                          [x[1] for x in notes_list],\
-                          [x[2] for x in notes_list],\
+        notes_table = zip([x[0] for x in notes_list],
+                          [x[1] for x in notes_list],
+                          [x[2] for x in notes_list],
                           ["/delete_note/" + x[0] for x in notes_list])
 
         images_list = list_images_for_user(session['current_user'])
-        images_table = zip([x[0] for x in images_list],\
-                          [x[1] for x in images_list],\
-                          [x[2] for x in images_list],\
-                          ["/delete_image/" + x[0] for x in images_list])
+        images_table = zip([x[0] for x in images_list],
+                           [x[1] for x in images_list],
+                           [x[2] for x in images_list],
+                           ["/delete_image/" + x[0] for x in images_list])
 
-        return render_template("private_page.html", notes = notes_table, images = images_table)
+        return render_template("private_page.html", notes=notes_table, images=images_table)
     else:
         return abort(401)
 
@@ -69,136 +63,137 @@ def FUN_private():
 def FUN_admin():
     if session.get("current_user", None) == "ADMIN":
         user_list = list_users()
-        user_table = zip(range(1, len(user_list)+1),\
-                        user_list,\
-                        [x + y for x,y in zip(["/delete_user/"] * len(user_list), user_list)])
-        return render_template("admin.html", users = user_table)
+        user_table = zip(range(1, len(user_list)+1),
+                         user_list,
+                         [x + y for x, y in zip(["/delete_user/"] * len(user_list), user_list)])
+        return render_template("admin.html", users=user_table)
     else:
         return abort(401)
 
-
-
-
-
-
-@app.route("/write_note", methods = ["POST"])
+@app.route("/write_note", methods=["POST"])
 def FUN_write_note():
     text_to_write = request.form.get("text_note_to_take")
-    write_note_into_db(session['current_user'], text_to_write)
+    current_user = session.get('current_user', 'Inconnu')
+    print(f"[WRITE NOTE] {current_user} a écrit une note : {text_to_write}")
+    write_note_into_db(current_user, text_to_write)
+    return redirect(url_for("FUN_private"))
 
-    return(redirect(url_for("FUN_private")))
-
-@app.route("/delete_note/<note_id>", methods = ["GET"])
+@app.route("/delete_note/<note_id>", methods=["GET"])
 def FUN_delete_note(note_id):
-    if session.get("current_user", None) == match_user_id_with_note_id(note_id): # Ensure the current user is NOT operating on other users' note.
+    current_user = session.get("current_user", None)
+    owner = match_user_id_with_note_id(note_id)
+    if current_user == owner:
+        print(f"[DELETE NOTE] {current_user} a supprimé la note {note_id}")
         delete_note_from_db(note_id)
     else:
+        print(f"[DELETE NOTE ÉCHOUÉ] {current_user}"
+              " a tenté de supprimer la note {note_id} appartenant à {owner}")
         return abort(401)
-    return(redirect(url_for("FUN_private")))
+    return redirect(url_for("FUN_private"))
 
-
-# Reference: http://flask.pocoo.org/docs/0.12/patterns/fileuploads/
 ALLOWED_EXTENSIONS = set(['png', 'jpg', 'jpeg', 'gif'])
+
 def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-@app.route("/upload_image", methods = ['POST'])
+@app.route("/upload_image", methods=['POST'])
 def FUN_upload_image():
-    if request.method == 'POST':
-        # check if the post request has the file part
-        if 'file' not in request.files:
-            flash('No file part', category='danger')
-            return(redirect(url_for("FUN_private")))
-        file = request.files['file']
-        # if user does not select file, browser also submit a empty part without filename
-        if file.filename == '':
-            flash('No selected file', category='danger')
-            return(redirect(url_for("FUN_private")))
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            upload_time = str(datetime.datetime.now())
-            image_uid = hashlib.sha1((upload_time + filename).encode()).hexdigest()
-            # Save the image into UPLOAD_FOLDER
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], image_uid + "-" + filename))
-            # Record this uploading in database
-            image_upload_record(image_uid, session['current_user'], filename, upload_time)
-            return(redirect(url_for("FUN_private")))
+    if 'file' not in request.files:
+        print("[UPLOAD IMAGE] Aucun fichier reçu")
+        flash('No file part', category='danger')
+        return redirect(url_for("FUN_private"))
+    file = request.files['file']
+    if file.filename == '':
+        print("[UPLOAD IMAGE] Aucun fichier sélectionné")
+        flash('No selected file', category='danger')
+        return redirect(url_for("FUN_private"))
+    if file and allowed_file(file.filename):
+        filename = secure_filename(file.filename)
+        upload_time = str(datetime.datetime.now())
+        image_uid = hashlib.sha256((upload_time + filename).encode()).hexdigest()
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], image_uid + "-" + filename))
+        image_upload_record(image_uid, session['current_user'], filename, upload_time)
+        print(f"[UPLOAD IMAGE] {session['current_user']} a téléversé : {filename} (UID: {image_uid})")
+    return redirect(url_for("FUN_private"))
 
-    return(redirect(url_for("FUN_private")))
-
-@app.route("/delete_image/<image_uid>", methods = ["GET"])
+@app.route("/delete_image/<image_uid>", methods=["GET"])
 def FUN_delete_image(image_uid):
-    if session.get("current_user", None) == match_user_id_with_image_uid(image_uid): # Ensure the current user is NOT operating on other users' note.
-        # delete the corresponding record in database
+    current_user = session.get("current_user", None)
+    owner = match_user_id_with_image_uid(image_uid)
+    if current_user == owner:
         delete_image_from_db(image_uid)
-        # delete the corresponding image file from image pool
-        image_to_delete_from_pool = [y for y in [x for x in os.listdir(app.config['UPLOAD_FOLDER'])] if y.split("-", 1)[0] == image_uid][0]
+        image_to_delete_from_pool = [y for y in [x for x in os.listdir(app.config['UPLOAD_FOLDER'])]
+                                     if y.split("-", 1)[0] == image_uid][0]
         os.remove(os.path.join(app.config['UPLOAD_FOLDER'], image_to_delete_from_pool))
+        print(f"[DELETE IMAGE] {current_user} a supprimé l'image UID: {image_uid}")
     else:
+        print(f"[DELETE IMAGE ÉCHOUÉ] {current_user}"
+              " a tenté de supprimer une image appartenant à {owner}")
         return abort(401)
-    return(redirect(url_for("FUN_private")))
+    return redirect(url_for("FUN_private"))
 
-
-
-
-
-
-@app.route("/login", methods = ["POST"])
+@app.route("/login", methods=["POST"])
 def FUN_login():
     id_submitted = request.form.get("id").upper()
     if (id_submitted in list_users()) and verify(id_submitted, request.form.get("pw")):
         session['current_user'] = id_submitted
-    
-    return(redirect(url_for("FUN_root")))
+        print(f"[LOGIN] Utilisateur connecté : {id_submitted}")
+    else:
+        print(f"[LOGIN ÉCHOUÉ] Tentative de connexion pour : {id_submitted}")
+    return redirect(url_for("FUN_root"))
 
 @app.route("/logout/")
 def FUN_logout():
+    user = session.get("current_user", "Inconnu")
+    print(f"[LOGOUT] Déconnexion de l'utilisateur : {user}")
     session.pop("current_user", None)
-    return(redirect(url_for("FUN_root")))
+    return redirect(url_for("FUN_root"))
 
-@app.route("/delete_user/<id>/", methods = ['GET'])
+@app.route("/delete_user/<id>/", methods=['GET'])
 def FUN_delete_user(id):
     if session.get("current_user", None) == "ADMIN":
-        if id == "ADMIN": # ADMIN account can't be deleted.
+        if id == "ADMIN":
+            print("[DELETE USER BLOQUÉ] Tentative de suppression de l’admin")
             return abort(403)
-
-        # [1] Delete this user's images in image pool
         images_to_remove = [x[0] for x in list_images_for_user(id)]
         for f in images_to_remove:
-            image_to_delete_from_pool = [y for y in [x for x in os.listdir(app.config['UPLOAD_FOLDER'])] if y.split("-", 1)[0] == f][0]
+            image_to_delete_from_pool = [y for y in
+                [x for x in os.listdir(app.config['UPLOAD_FOLDER'])]
+                if y.split("-", 1)[0] == f][0]
             os.remove(os.path.join(app.config['UPLOAD_FOLDER'], image_to_delete_from_pool))
-        # [2] Delele the records in database files
         delete_user_from_db(id)
-        return(redirect(url_for("FUN_admin")))
+        print(f"[DELETE USER] Utilisateur supprimé : {id}")
+        return redirect(url_for("FUN_admin"))
     else:
+        print("[DELETE USER ÉCHOUÉ] Accès refusé")
         return abort(401)
 
-@app.route("/add_user", methods = ["POST"])
+@app.route("/add_user", methods=["POST"])
 def FUN_add_user():
-    if session.get("current_user", None) == "ADMIN": # only Admin should be able to add user.
-        # before we add the user, we need to ensure this is doesn't exsit in database. We also need to ensure the id is valid.
-        if request.form.get('id').upper() in list_users():
+    if session.get("current_user", None) == "ADMIN":
+        user_id = request.form.get('id').upper()
+        if user_id in list_users():
+            print(f"[ADD USER ÉCHOUÉ] Utilisateur déjà existant : {user_id}")
             user_list = list_users()
-            user_table = zip(range(1, len(user_list)+1),\
-                            user_list,\
-                            [x + y for x,y in zip(["/delete_user/"] * len(user_list), user_list)])
-            return(render_template("admin.html", id_to_add_is_duplicated = True, users = user_table))
-        if " " in request.form.get('id') or "'" in request.form.get('id'):
+            user_table = zip(range(1, len(user_list)+1),
+                             user_list,
+                             [x + y for x, y in zip(["/delete_user/"] * len(user_list), user_list)])
+            return render_template("admin.html", id_to_add_is_duplicated=True, users=user_table)
+        if " " in user_id or "'" in user_id:
+            print(f"[ADD USER ÉCHOUÉ] ID invalide : {user_id}")
             user_list = list_users()
-            user_table = zip(range(1, len(user_list)+1),\
-                            user_list,\
-                            [x + y for x,y in zip(["/delete_user/"] * len(user_list), user_list)])
-            return(render_template("admin.html", id_to_add_is_invalid = True, users = user_table))
+            user_table = zip(range(1, len(user_list)+1),
+                             user_list,
+                             [x + y for x, y in zip(["/delete_user/"] * len(user_list), user_list)])
+            return render_template("admin.html", id_to_add_is_invalid=True, users=user_table)
         else:
-            add_user(request.form.get('id'), request.form.get('pw'))
-            return(redirect(url_for("FUN_admin")))
+            add_user(user_id, request.form.get('pw'))
+            print(f"[ADD USER] Nouvel utilisateur ajouté : {user_id}")
+            return redirect(url_for("FUN_admin"))
     else:
+        print("[ADD USER ÉCHOUÉ] Accès non autorisé à l'ajout utilisateur")
         return abort(401)
-
-
-
-
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0")
+    debug_mode = os.getenv("FLASK_DEBUG", "False").lower() == "true"
+    app.run(debug=debug_mode, host="127.0.0.1")

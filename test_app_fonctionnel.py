@@ -28,7 +28,5 @@ class ImageUploadDeleteTestCase(unittest.TestCase):
             image_uid = 'fake_image_uid'
             response_delete = client.get(f"/delete_image/{image_uid}", follow_redirects=True)
 
-            
-
 if __name__ == '__main__':
     unittest.main()

@@ -41,14 +41,16 @@ def delete_user_from_db(user_id):
 def add_user(user_id, pw):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT INTO users (id, pw) VALUES (%s, %s)", (user_id.upper(), hashlib.sha256(pw.encode()).hexdigest()))
+    cursor.execute("INSERT INTO users (id, pw) VALUES (%s, %s)", (user_id.upper(), 
+                hashlib.sha256(pw.encode()).hexdigest()))
     conn.commit()
     conn.close()
 
 def read_note_from_db(user_id):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("SELECT note_id, timestamp, note FROM notes WHERE user = %s;", (user_id.upper(),))
+    cursor.execute("SELECT note_id, timestamp, note FROM notes WHERE user = %s;", 
+        (user_id.upper(),))
     result = cursor.fetchall()
     conn.close()
     return result
@@ -65,7 +67,7 @@ def write_note_into_db(user_id, note_to_write):
     conn = get_connection()
     cursor = conn.cursor()
     current_timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    note_hash = hashlib.sha1((user_id.upper() + current_timestamp).encode()).hexdigest()
+    note_hash = hashlib.sha256((user_id.upper() + current_timestamp).encode()).hexdigest()
     cursor.execute("INSERT INTO notes (user, timestamp, note, note_id) VALUES (%s, %s, %s, %s)", 
                    (user_id.upper(), current_timestamp, note_to_write, note_hash))
     conn.commit()
